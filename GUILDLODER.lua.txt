@@ -1,0 +1,81 @@
+local free_scripts_url =
+"https://gist.githubusercontent.com/a43aeacbe2aa9d8bb05814bff8033cdf/607b3dd00192c80dd8ac39b0f58902e4/raw/GUILD.lua"
+
+local state = {
+    isLoading = true,
+    statusMessage = "Loading GUILD scripts...",
+    freeScripts = {},
+    selectedFreeIndex = 0
+}
+
+local loader_hook_name = "IKAN_LOADER_GUI"
+
+function RunScript(script_info)
+    RemoveHook(loader_hook_name)
+    RunThread(function()
+        local script_response = MakeRequest(script_info.url)
+        if script_response and not script_response.error then
+            local script_func, err = load(script_response.content)
+            if script_func then pcall(script_func) end
+        end
+    end)
+end
+
+function InitializeLoader()
+    RunThread(function()
+        local free_response = MakeRequest(free_scripts_url)
+        if free_response and not free_response.error then
+            local free_db_loader, err = load(free_response.content)
+            if free_db_loader then
+                local free_db = free_db_loader()
+                for name, url in pairs(free_db) do
+                    table.insert(state.freeScripts, { name = name, url = url })
+                end
+            end
+        else
+            LogToConsole("`4FREE SCRIPTS tidak bisa di-load.")
+        end
+        state.isLoading = false
+        AddHook("OnDraw", loader_hook_name, LoaderOnDraw)
+    end)
+end
+
+function LoaderOnDraw()
+    ImGui.SetNextWindowSize(ImVec2(350, 250), ImGui.Cond.FirstUseEver)
+    local flags = ImGui.WindowFlags.NoCollapse + ImGui.WindowFlags.NoResize + ImGui.WindowFlags.AlwaysAutoResize
+    ImGui.Begin(" GUILD SCRIPT HUB - 1K4N COMMUNITY", flags)
+
+    if state.isLoading then
+        ImGui.Text(state.statusMessage)
+    else
+        for i, script_info in ipairs(state.freeScripts) do
+            ImGui.Separator()
+            if ImGui.RadioButton(script_info.name, state.selectedFreeIndex == i) then
+                state.selectedFreeIndex = i
+            end
+        end
+
+        ImGui.Separator()
+
+        local script_to_run = nil
+        if state.selectedFreeIndex > 0 then
+            script_to_run = state.freeScripts[state.selectedFreeIndex]
+        end
+
+        if not script_to_run then
+            ImGui.PushStyleColor(ImGui.Col.Button, ImVec4(0.5, 0.5, 0.5, 1.0))
+            ImGui.PushStyleColor(ImGui.Col.ButtonHovered, ImVec4(0.5, 0.5, 0.5, 1.0))
+            ImGui.PushStyleColor(ImGui.Col.ButtonActive, ImVec4(0.5, 0.5, 0.5, 1.0))
+        end
+
+        if ImGui.Button("START SCRIPT", ImVec2(ImGui.GetContentRegionAvail().x, 30)) and script_to_run then
+            RunScript(script_to_run)
+        end
+
+        if not script_to_run then ImGui.PopStyleColor(3) end
+    end
+
+    ImGui.End()
+end
+
+InitializeLoader()

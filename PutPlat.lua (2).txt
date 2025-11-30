@@ -1,0 +1,84 @@
+IDs = 7860 -- Platform ID
+SpeedPlace = 100 -- Delay
+WorldType = "normal" -- else if island World "island"
+endY = 54 -- end Y Position so that it didnt place the whole world with platform
+
+
+
+-- DO NOT TOUCH ANY PART BELOW --
+
+if WorldType == "normal" then
+    starty, endy = 1, endY
+    startx, endx = 1, 99
+elseif WorldType == "island" then
+    starty, endy = 1, endY
+    startx, endx = 0, 199
+end
+
+AddHook("onvariant", "cancel", function(var)
+    if var[0] == "OnDialogRequest" and var[1]:find("Item Finder") then
+        return true
+    end
+end)
+
+function move(x, y)
+    local PX = math.floor(GetLocal().pos.x / 32)
+    local PY = math.floor(GetLocal().pos.y / 32)
+
+    while math.abs(y - PY) > 11 do
+        PY = PY + (y - PY > 0 and 10 or -10)
+        FindPath(PX, PY)
+        Sleep(700)
+    end
+
+    while math.abs(x - PX) > 11 do
+        PX = PX + (x - PX > 0 and 10 or -10)
+        FindPath(PX, PY)
+        Sleep(700)
+    end
+
+    FindPath(x, y)
+    Sleep(200)
+end
+
+function Raw(t, s, v, x, y)
+  SendPacketRaw(false, {
+    type = t,
+    state = s,
+    value = v,
+    px = x,
+    py = y,
+    x = x * 32,
+    y = y * 32
+  })
+end
+
+function findItem(id)
+  for _, itm in pairs(GetInventory()) do
+    if itm.id == id then
+      return itm.amount
+    end
+  end
+  return 0
+end
+
+function placeplat()
+  for x = startx, endx, 10 do
+    for y = starty, endy, 2 do
+      while findItem(IDs) < 15 do
+        SendPacket(2, "action|dialog_return\ndialog_name|item_search\n"..IDs.."|1\n"..IDs + 1 .."|0")
+        Sleep(2000)
+      end
+      if GetTile(x, y).fg ~= IDs then
+        LogToConsole("`2Placing `w(`c"..x..",`c"..y.."`w)")
+        move(x-1, y)
+        Raw(3, 0, IDs, x, y)
+        Sleep(SpeedPlace)
+      end
+    end
+  end
+end
+
+while true do
+  placeplat()
+end
