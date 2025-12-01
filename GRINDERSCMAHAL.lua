@@ -3,7 +3,7 @@
 
 -- Settings
 local Settings = {
-    per = 4570,
+    per = 4584,
     delay = 150,
     drop = {84, 22},
     max = 125
@@ -23,7 +23,7 @@ local gui = {
     max_text = "125",
     
     -- Checkboxes for item selection
-    use_pepper = true,  -- 4570
+    use_pepper = true,  -- 4584
     use_salt = false    -- 4566
 }
 
@@ -238,7 +238,7 @@ function GrindGUIOnDraw()
     ImGui.Text(ICON_CUBES .. " Item Type")
     ImGui.Separator()
     
-    if ImGui.Checkbox("Pepper Tree (ID: 4570)", gui.use_pepper) then
+    if ImGui.Checkbox("Pepper Tree (ID: 4584)", gui.use_pepper) then
         gui.use_pepper = not gui.use_pepper
         if gui.use_pepper then
             gui.use_salt = false
