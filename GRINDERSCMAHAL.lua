@@ -1,33 +1,25 @@
 
---[[ Grind Ver 27black or Rp300.0000,00 with ImGui ]]--
+--[[ Grind System - Created by Yumiko ]]--
 
--- Settings
 local Settings = {
-    per = 4584,
+    per = {},
     delay = 150,
     drop = {84, 22},
     max = 125
 }
 
--- GUI State
 local gui = {
     running = false,
     status = "Idle",
-    grind_count = 0,
     total_dropped = 0,
-    
-    -- Settings as strings
+    session_start = 0,
     delay_text = "150",
     drop_x_text = "84",
     drop_y_text = "22",
-    max_text = "125",
-    
-    -- Checkboxes for item selection
-    use_pepper = true,  -- 4584
-    use_salt = false    -- 4566
+    use_pepper = true,
+    use_salt = false
 }
 
--- Original Functions
 function inv(id)
     local c = 0
     for _, i in pairs(GetInventory()) do
@@ -38,62 +30,78 @@ function inv(id)
     return c
 end
 
+local can_drop = true
+
 AddHook("onvariant", "hook", function(var)
     if var[0] == "OnDialogRequest" and var[1]:find("Item Finder") then
         return true
     end
+    if var[0] == "OnTextOverlay" and var[1]:find("You can't drop") then
+        can_drop = false
+        local player = GetLocal()
+        if player.isleft then
+            Settings.drop[1] = Settings.drop[1] + 1
+        else
+            Settings.drop[1] = Settings.drop[1] - 1
+        end
+        FindPath(Settings.drop[1] - 1, Settings.drop[2] - 1)
+        Sleep(1000)
+        can_drop = true
+    end
 end)
 
-DropY = {}
-
 function FP(x, y)
-    local px = math.floor(GetLocal().pos.x / 32)
-    local py = math.floor(GetLocal().pos.y / 32)
-    
-    while math.abs(y - py) > 6 do
-        if not gui.running then return false end
-        py = py + (y - py > 0 and 6 or -6)
-        FindPath(px, py)
-        Sleep(200)
-    end
-    while math.abs(x - px) > 6 do
-        if not gui.running then return false end
-        px = px + (x - px > 0 and 6 or -6)
-        FindPath(px, py)
-        Sleep(200)
-    end
-    Sleep(100)
-    FindPath(x, y)
+    if not gui.running then return false end
+    FindPath(x - 1, y - 1)
+    Sleep(500)
     return true
 end
 
-function drops(id, i)
+function drops()
     if not gui.running then return false end
     
-    if not DropY[i] then
-        DropY[i] = Settings.drop[2]
+    if inv(4568) < 250 and inv(4570) < 250 then
+        return true
     end
-    local x = Settings.drop[1] + (i - 1)
-    local y = DropY[i] or Settings.drop[2]
     
-    if not FP(x - 1, y) then return false end
+    if not can_drop then
+        Sleep(1000)
+        return true
+    end
+    
+    gui.status = "Dropping items..."
+    SendPacket(2, "action|input\n|text|/ghost")
+    Sleep(1500)
+    
+    if not FP(Settings.drop[1], Settings.drop[2]) then return false end
     Sleep(500)
     
-    for a = 1, 24 do
-        if not gui.running then return false end
-        if inv(id) >= 250 then
-            SendPacket(2, "action|dialog_return\ndialog_name|drop\nitem_drop|"..id.."|\nitem_count|"..inv(id).."|\n")
-            Sleep(400)
-            gui.total_dropped = gui.total_dropped + inv(id)
-        end
+    local drop_amount = 0
+    
+    if inv(4568) > 0 then
+        drop_amount = drop_amount + inv(4568)
+        SendPacket(2, "action|dialog_return\ndialog_name|drop\nitem_drop|4568|\nitem_count|" .. inv(4568))
+        Sleep(500)
     end
     
-    if not FP(p, h) then return false end
+    if inv(4570) > 0 then
+        drop_amount = drop_amount + inv(4570)
+        SendPacket(2, "action|dialog_return\ndialog_name|drop\nitem_drop|4570|\nitem_count|" .. inv(4570))
+        Sleep(500)
+    end
+    
+    gui.total_dropped = gui.total_dropped + drop_amount
+    
+    SendPacket(2, "action|input\n|text|/ghost")
+    Sleep(1500)
+    
+    p = p or math.floor(GetLocal().pos.x / 32)
+    h = h or math.floor(GetLocal().pos.y / 32)
+    if not FP(p + 1, h + 1) then return false end
     Sleep(500)
     
-    if inv(id) >= 250 then
-        DropY[i] = DropY[i] - 1
-    end
+    gui.status = "Searching & Grinding..."
+    
     return true
 end
 
@@ -101,64 +109,63 @@ function updateSettings()
     Settings.delay = tonumber(gui.delay_text) or 150
     Settings.drop[1] = tonumber(gui.drop_x_text) or 84
     Settings.drop[2] = tonumber(gui.drop_y_text) or 22
-    Settings.max = tonumber(gui.max_text) or 125
     
-    -- Set item ID based on checkbox
+    Settings.per = {}
     if gui.use_pepper then
-        Settings.per = 4570
-    elseif gui.use_salt then
-        Settings.per = 4566
+        table.insert(Settings.per, 4584)
+    end
+    if gui.use_salt then
+        table.insert(Settings.per, 4566)
     end
 end
 
+function formatTime(seconds)
+    local hours = math.floor(seconds / 3600)
+    local mins = math.floor((seconds % 3600) / 60)
+    local secs = math.floor(seconds % 60)
+    return string.format("%02dh %02dm %02ds", hours, mins, secs)
+end
+
 function startGrinding()
-    gui.running = true
-    gui.status = "Starting..."
-    gui.grind_count = 0
-    gui.total_dropped = 0
-    
     updateSettings()
+    
+    if #Settings.per == 0 then
+        LogToConsole("`4[YUMIKO] `wPlease select at least one mode!")
+        return
+    end
+    
+    gui.running = true
+    gui.status = "Searching & Grinding..."
+    gui.total_dropped = 0
+    gui.session_start = os.time()
+    
+    LogToConsole("`2[YUMIKO] `wSession started!")
     
     RunThread(function()
         p = math.floor(GetLocal().pos.x/32)
         h = math.floor(GetLocal().pos.y/32)
         
-        local c = 0
-        local g = false
+        local item_index = 1
         
         while gui.running do
-            if inv(Settings.per) >= 250 then
-                gui.status = "Dropping items..."
-                if not drops(Settings.per, 1) then break end
+            if inv(4568) >= 250 or inv(4570) >= 250 then
+                if not drops() then break end
                 Sleep(600)
-                c = 0
-                g = false
             end
             
-            if g then
-                if not gui.running then break end
-                gui.status = "Grinding... (" .. c .. "/" .. Settings.max .. ")"
-                SendPacket(2, "action|dialog_return\ndialog_name|grinder\nx|"..p.."|\ny|"..h.."|\nitemID|"..Settings.per.."|\namount|2")
-                Sleep(100)
-            else
-                if c < Settings.max then
-                    if not gui.running then break end
-                    gui.status = "Searching & Grinding... (" .. c .. "/" .. Settings.max .. ")"
-                    SendPacket(2, "action|dialog_return\ndialog_name|item_search\n"..Settings.per.."|1\n")
-                    Sleep(Settings.delay)
-                    SendPacket(2, "action|dialog_return\ndialog_name|grinder\nx|"..p.."|\ny|"..h.."|\nitemID|"..Settings.per.."|\namount|2")
-                    Sleep(100)
-                    c = c + 1
-                    gui.grind_count = c
-                    LogToConsole(string.format("Grinding Attempt: %d/%d", c, Settings.max))
-                    if c >= Settings.max then
-                        g = true
-                    end
+            local currentItem = Settings.per[item_index]
+            
+            if not gui.running then break end
+            SendPacket(2, "action|dialog_return\ndialog_name|item_search\n"..currentItem.."|1\n")
+            Sleep(Settings.delay)
+            SendPacket(2, "action|dialog_return\ndialog_name|grinder\nx|"..p.."|\ny|"..h.."|\nitemID|"..currentItem.."|\namount|2")
+            Sleep(100)
+            
+            if #Settings.per > 1 then
+                item_index = item_index + 1
+                if item_index > #Settings.per then
+                    item_index = 1
                 end
-            end
-            
-            if g and c < Settings.max then
-                g = false
             end
             
             Sleep(100)
@@ -166,18 +173,15 @@ function startGrinding()
         
         gui.running = false
         gui.status = "Stopped"
-        LogToConsole("Grinding stopped!")
+        LogToConsole("`2[YUMIKO] `wSession ended. Total dropped: `4" .. gui.total_dropped)
     end)
 end
 
 function stopGrinding()
     gui.running = false
     gui.status = "Stopping..."
-    LogToConsole("Stop button pressed...")
 end
 
--- Font Awesome Icons
-local ICON_SEEDLING = "\xef\x93\x98"
 local ICON_CHART_LINE = "\xef\x88\x81"
 local ICON_PLAY = "\xef\x81\x8b"
 local ICON_STOP = "\xef\x81\x8d"
@@ -185,115 +189,160 @@ local ICON_GEAR = "\xef\x80\x93"
 local ICON_CLOCK = "\xef\x80\x97"
 local ICON_LOCATION_DOT = "\xef\x8f\x85"
 local ICON_CUBES = "\xef\x86\xb3"
+local ICON_FIRE = "\xef\x81\xad"
+local ICON_BOX = "\xef\x91\xa6"
+local ICON_INFO = "\xef\x81\x9a"
+local ICON_SLIDERS = "\xef\x87\xa6"
 
--- GUI Render Function
 function GrindGUIOnDraw()
-    ImGui.SetNextWindowSize(ImVec2(450, 550), ImGui.Cond.FirstUseEver)
+    ImGui.SetNextWindowSize(ImVec2(420, 480), ImGui.Cond.FirstUseEver)
     local flags = ImGui.WindowFlags.NoCollapse
-    ImGui.Begin("Grind Script by 27black", flags)
+    ImGui.Begin(ICON_FIRE .. " Grind Advance", flags)
     
-    -- Status Section
-    ImGui.Separator()
-    ImGui.Text(ICON_CHART_LINE .. " Status Information")
+    ImGui.Text("GRIND ADVANCE")
     ImGui.Separator()
     
-    if gui.running then
-        ImGui.TextColored(ImVec4(0.2, 1.0, 0.2, 1.0), "Status: " .. gui.status)
-    else
-        ImGui.TextColored(ImVec4(1.0, 0.3, 0.3, 1.0), "Status: " .. gui.status)
+    if ImGui.BeginTabBar("MainTabs") then
+        
+        if ImGui.BeginTabItem(ICON_INFO .. " Info") then
+            
+            ImGui.Text(ICON_CHART_LINE .. " STATUS")
+            ImGui.Separator()
+            
+            if gui.running then
+                ImGui.Text("Status: ACTIVE")
+            else
+                ImGui.Text("Status: IDLE")
+            end
+            
+            ImGui.Text("Action: " .. gui.status)
+            
+            local session_time = gui.running and (os.time() - gui.session_start) or 0
+            ImGui.Text(ICON_CLOCK .. " Time: " .. formatTime(session_time))
+            
+            ImGui.Separator()
+            
+            ImGui.Text(ICON_CUBES .. " MODE")
+            ImGui.Separator()
+            
+            local modes = {}
+            if gui.use_pepper then table.insert(modes, "Pepper (4584)") end
+            if gui.use_salt then table.insert(modes, "Salt (4566)") end
+            local mode_text = #modes > 0 and table.concat(modes, " + ") or "None"
+            
+            ImGui.TextWrapped("Active: " .. mode_text)
+            ImGui.Text("Delay: " .. Settings.delay .. "ms")
+            ImGui.Text("Drop: X=" .. Settings.drop[1] .. " Y=" .. Settings.drop[2])
+            
+            ImGui.Separator()
+            
+            ImGui.Text(ICON_BOX .. " INVENTORY")
+            ImGui.Separator()
+            
+            local salt_inv = inv(4568)
+            local salt_progress = salt_inv / 250
+            ImGui.Text("Salt (4568): " .. salt_inv .. " / 250")
+            ImGui.ProgressBar(salt_progress, ImVec2(-1, 0), string.format("%.1f%%", salt_progress * 100))
+            
+            local pepper_inv = inv(4570)
+            local pepper_progress = pepper_inv / 250
+            ImGui.Text("Pepper (4570): " .. pepper_inv .. " / 250")
+            ImGui.ProgressBar(pepper_progress, ImVec2(-1, 0), string.format("%.1f%%", pepper_progress * 100))
+            
+            ImGui.Separator()
+            
+            ImGui.Text(ICON_BOX .. " PRODUCTION")
+            ImGui.Separator()
+            ImGui.Text("Dropped: " .. gui.total_dropped .. " items")
+            
+            ImGui.EndTabItem()
+        end
+        
+        if ImGui.BeginTabItem(ICON_CUBES .. " Mode") then
+            
+            ImGui.Text(ICON_CUBES .. " SELECT MODE")
+            ImGui.Separator()
+            
+            ImGui.TextWrapped("Choose grinding mode (can select both):")
+            ImGui.Spacing()
+            
+            if ImGui.Checkbox("Pepper Tree (4584)", gui.use_pepper) then
+                gui.use_pepper = not gui.use_pepper
+            end
+            
+            ImGui.Spacing()
+            
+            if ImGui.Checkbox("Salt Block (4566)", gui.use_salt) then
+                gui.use_salt = not gui.use_salt
+            end
+            
+            ImGui.Spacing()
+            ImGui.Separator()
+            ImGui.Spacing()
+            
+            ImGui.TextWrapped("Select one or both modes. Will grind both items alternately if both selected.")
+            
+            ImGui.EndTabItem()
+        end
+        
+        if ImGui.BeginTabItem(ICON_GEAR .. " Settings") then
+            
+            ImGui.Text(ICON_SLIDERS .. " CONFIGURATION")
+            ImGui.Separator()
+            
+            ImGui.Text(ICON_CLOCK .. " Search Delay (ms)")
+            ImGui.PushItemWidth(-1)
+            local changed, new_val = ImGui.InputText("##delay", gui.delay_text, 256)
+            if changed then gui.delay_text = new_val end
+            ImGui.PopItemWidth()
+            
+            ImGui.Spacing()
+            ImGui.Separator()
+            
+            ImGui.Text(ICON_LOCATION_DOT .. " Drop Position")
+            ImGui.Spacing()
+            
+            ImGui.Text("X:")
+            ImGui.PushItemWidth(-1)
+            local changed, new_val = ImGui.InputText("##dropx", gui.drop_x_text, 256)
+            if changed then gui.drop_x_text = new_val end
+            ImGui.PopItemWidth()
+            
+            ImGui.Spacing()
+            
+            ImGui.Text("Y:")
+            ImGui.PushItemWidth(-1)
+            local changed, new_val = ImGui.InputText("##dropy", gui.drop_y_text, 256)
+            if changed then gui.drop_y_text = new_val end
+            ImGui.PopItemWidth()
+            
+            ImGui.Spacing()
+            ImGui.TextWrapped("Drop coordinates when inventory full")
+            
+            ImGui.EndTabItem()
+        end
+        
+        ImGui.EndTabBar()
     end
     
-    ImGui.Text("Grind Count: " .. gui.grind_count .. " / " .. Settings.max)
-    ImGui.Text("Total Dropped: " .. gui.total_dropped)
-    ImGui.Text("Inventory: " .. inv(Settings.per))
-    
-    local progress = math.min(gui.grind_count / Settings.max, 1.0)
-    ImGui.ProgressBar(progress, ImVec2(-1, 0), string.format("%d / %d (%.1f%%)", gui.grind_count, Settings.max, progress * 100))
-    
-    ImGui.Spacing()
-    ImGui.Separator()
-    
-    -- Control Buttons
-    ImGui.Text(ICON_PLAY .. " Controls")
     ImGui.Separator()
     
     if not gui.running then
-        if ImGui.Button(ICON_PLAY .. " Start Grinding", ImVec2(-1, 35)) then
+        if ImGui.Button(ICON_PLAY .. " START GRINDING", ImVec2(-1, 0)) then
             startGrinding()
         end
     else
-        if ImGui.Button(ICON_STOP .. " Stop Grinding", ImVec2(-1, 35)) then
+        if ImGui.Button(ICON_STOP .. " STOP GRINDING", ImVec2(-1, 0)) then
             stopGrinding()
         end
     end
     
-    ImGui.Spacing()
     ImGui.Separator()
-    
-    -- Settings Section
-    ImGui.Text(ICON_GEAR .. " Settings")
-    ImGui.Separator()
-    
-    -- Item Selection
-    ImGui.Text(ICON_CUBES .. " Item Type")
-    ImGui.Separator()
-    
-    if ImGui.Checkbox("Pepper Tree (ID: 4584)", gui.use_pepper) then
-        gui.use_pepper = not gui.use_pepper
-        if gui.use_pepper then
-            gui.use_salt = false
-        end
-    end
-    
-    if ImGui.Checkbox("Salt Block (ID: 4566)", gui.use_salt) then
-        gui.use_salt = not gui.use_salt
-        if gui.use_salt then
-            gui.use_pepper = false
-        end
-    end
-    
-    ImGui.Spacing()
-    ImGui.Text(ICON_CLOCK .. " Timing")
-    ImGui.Separator()
-    
-    ImGui.Text("Delay (ms)")
-    ImGui.PushItemWidth(-1)
-    local changed, new_val = ImGui.InputText("##delay", gui.delay_text, 256)
-    if changed then gui.delay_text = new_val end
-    ImGui.PopItemWidth()
-    
-    ImGui.Spacing()
-    ImGui.Text("Max Grind Count")
-    ImGui.PushItemWidth(-1)
-    local changed, new_val = ImGui.InputText("##max", gui.max_text, 256)
-    if changed then gui.max_text = new_val end
-    ImGui.PopItemWidth()
-    
-    ImGui.Spacing()
-    ImGui.Text(ICON_LOCATION_DOT .. " Drop Position")
-    ImGui.Separator()
-    
-    ImGui.Text("Drop X")
-    ImGui.PushItemWidth(-1)
-    local changed, new_val = ImGui.InputText("##dropx", gui.drop_x_text, 256)
-    if changed then gui.drop_x_text = new_val end
-    ImGui.PopItemWidth()
-    
-    ImGui.Spacing()
-    ImGui.Text("Drop Y")
-    ImGui.PushItemWidth(-1)
-    local changed, new_val = ImGui.InputText("##dropy", gui.drop_y_text, 256)
-    if changed then gui.drop_y_text = new_val end
-    ImGui.PopItemWidth()
-    
-    ImGui.Spacing()
-    ImGui.Separator()
-    ImGui.TextColored(ImVec4(0.5, 0.5, 0.5, 1.0), "Grind Script v1.0 by 27black")
+    ImGui.Text("Created by Yumiko")
     
     ImGui.End()
 end
 
--- Register GUI Hook
 AddHook("OnDraw", "GRIND_GUI", GrindGUIOnDraw)
 
-LogToConsole("Grind Script with ImGui loaded!")
+LogToConsole("`2[YUMIKO] `wGrind System loaded!")
