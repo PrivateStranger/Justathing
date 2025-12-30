@@ -1,0 +1,293 @@
+-- [[ Load ImGui Framework ]] --
+local Gui = load(MakeRequest(
+    "https://raw.githubusercontent.com/404Store/Lua-ImGui-Builder/refs/heads/main/imgui",
+    "GET"
+).content)()
+
+-- [[ Configuration ]] --
+local config = {
+    afkHours = 1,
+    afkMinutes = 0,
+    afkSeconds = 0,
+    targetWorld = "ql",
+    positionX = 0,
+    positionY = 0,
+    moveInterval = 30,
+    spamInterval = 4100,
+    shortInterval = 1000,
+    messages = {
+        "`9BUY UWS 600 `c[ Ql ]",
+        "`9BUY UWS 600 `c[ QL ]",
+        "`9BUY UWS 600 `c[ Ql ]"
+    }
+}
+
+-- [[ System Variables ]] --
+local isRunning = false
+local isPaused = false
+local startTime = 0
+local endTime = 0
+local worldName = ""
+local currentMessageIndex = 1
+local lastSpamTime = 0
+local lastMoveTime = 0
+local newMessageInput = ""
+local editingMessageIndex = -1
+local shouldGetPosition = false
+
+-- [[ Core Functions ]] --
+local function CalculateEndTime()
+    local totalSeconds = (config.afkHours * 3600) + (config.afkMinutes * 60) + config.afkSeconds
+    startTime = os.time()
+    endTime = startTime + totalSeconds
+end
+
+local function GetRemainingTime()
+    if not isRunning then
+        return 0, 0, 0
+    end
+    
+    local remaining = math.max(0, endTime - os.time())
+    local hours = math.floor(remaining / 3600)
+    local minutes = math.floor((remaining % 3600) / 60)
+    local seconds = remaining % 60
+    
+    return hours, minutes, seconds
+end
+
+-- [[ GUI Setup ]] --
+local Win = Gui.New({
+    title = "AFK Spam System",
+    size = { 600, 500 },
+    theme = "dark",
+    OnRender = function(win)
+        win:Tabs(function()
+            
+            -- Status Tab
+            win:Tab("Status", function()
+                win:Child("StatusPanel", -1, -1, false, function()
+                    
+                    local statusText = isRunning and (isPaused and "PAUSED" or "RUNNING") or "IDLE"
+                    win:Text("System Status: " .. statusText)
+                    win:Text("Spawn Position: " .. config.positionX .. ", " .. config.positionY)
+                    win:Text("Current World: " .. worldName)
+                    win:Text("")
+                    
+                    if isRunning then
+                        local h, m, s = GetRemainingTime()
+                        win:Text(string.format("Time Remaining: %02d:%02d:%02d", h, m, s))
+                        win:Text("")
+                        
+                        win:Button(isPaused and "Resume" or "Pause", function() 
+                            isPaused = not isPaused 
+                        end, 200, 35)
+                        
+                        win:Button("Stop Script", function()
+                            isRunning = false
+                            isPaused = false
+                        end, 200, 35)
+                    else
+                        win:Text("Ready to start AFK session")
+                        win:Text("")
+                        
+                        win:Button("Start Script", function()
+                            if config.positionX == 0 and config.positionY == 0 then
+                                return
+                            end
+                            CalculateEndTime()
+                            isRunning = true
+                            isPaused = false
+                            lastSpamTime = 0
+                            lastMoveTime = 0
+                            currentMessageIndex = 1
+                            worldName = string.upper(GetWorld().name)
+                        end, 200, 35)
+                        
+                        if config.positionX == 0 and config.positionY == 0 then
+                            win:Text("Please set spawn position first")
+                        end
+                    end
+                    
+                end)
+            end)
+            
+            -- Configuration Tab
+            win:Tab("Configuration", function()
+                win:Child("ConfigPanel", -1, -1, false, function()
+                    
+                    win:Text("Position Settings")
+                    win:Text("")
+                    
+                    config.positionX = win:InputInt("Position X", config.positionX)
+                    config.positionY = win:InputInt("Position Y", config.positionY)
+                    
+                    win:Button("Get Current Position", function()
+                        shouldGetPosition = true
+                    end, 200, 35)
+                    
+                    win:Text("")
+                    win:Text("AFK Duration Settings")
+                    win:Text("")
+                    
+                    config.afkHours = win:InputInt("Hours", config.afkHours)
+                    config.afkMinutes = win:InputInt("Minutes", config.afkMinutes)
+                    config.afkSeconds = win:InputInt("Seconds", config.afkSeconds)
+                    
+                    config.afkHours = math.max(0, config.afkHours)
+                    config.afkMinutes = math.max(0, math.min(59, config.afkMinutes))
+                    config.afkSeconds = math.max(0, math.min(59, config.afkSeconds))
+                    
+                    win:Text("")
+                    win:Text("World Settings")
+                    win:Text("")
+                    
+                    config.targetWorld = win:InputText("Target World", "Enter world name", config.targetWorld)
+                    
+                    win:Text("")
+                    win:Text("Advanced Settings")
+                    win:Text("")
+                    
+                    config.moveInterval = win:InputInt("Move Interval (seconds)", config.moveInterval)
+                    config.moveInterval = math.max(10, config.moveInterval)
+                    
+                    config.spamInterval = win:InputInt("Spam Cycle Delay (ms)", config.spamInterval)
+                    config.spamInterval = math.max(1000, config.spamInterval)
+                    
+                    config.shortInterval = win:InputInt("Message Delay (ms)", config.shortInterval)
+                    config.shortInterval = math.max(500, config.shortInterval)
+                    
+                end)
+            end)
+            
+            -- Spam Messages Tab
+            win:Tab("Spam Messages", function()
+                win:Child("SpamPanel", -1, -1, false, function()
+                    
+                    win:Text("Current Messages: " .. #config.messages)
+                    win:Text("")
+                    
+                    if #config.messages > 0 then
+                        for i, msg in ipairs(config.messages) do
+                            if editingMessageIndex == i then
+                                config.messages[i] = win:InputText("##edit" .. i, "Edit message", msg)
+                                
+                                win:Button("Save##" .. i, function()
+                                    editingMessageIndex = -1
+                                end, 70, 25)
+                                
+                                win:Text("")
+                            else
+                                win:Text(string.format("[%d] %s", i, msg))
+                                
+                                win:Button("Edit##" .. i, function()
+                                    editingMessageIndex = i
+                                end, 70, 25)
+                                
+                                win:Button("Delete##" .. i, function()
+                                    table.remove(config.messages, i)
+                                    if currentMessageIndex > #config.messages and #config.messages > 0 then
+                                        currentMessageIndex = 1
+                                    end
+                                end, 70, 25)
+                                
+                                win:Text("")
+                            end
+                        end
+                    else
+                        win:Text("No messages configured")
+                        win:Text("")
+                    end
+                    
+                    win:Text("Add New Message")
+                    
+                    newMessageInput = win:InputText("##newmsg", "Enter new message", newMessageInput)
+                    
+                    win:Button("Add Message", function()
+                        if newMessageInput ~= "" then
+                            table.insert(config.messages, newMessageInput)
+                            newMessageInput = ""
+                        end
+                    end, 200, 35)
+                    
+                end)
+            end)
+            
+        end)
+    end
+})
+
+-- [[ Render Loop ]] --
+AddHook("OnDraw", "RenderAFKSpamUI", function()
+    Win:Render()
+end)
+
+-- [[ Main Loop Thread ]] --
+RunThread(function()
+    while true do
+        Sleep(100)
+        
+        if shouldGetPosition then
+            config.positionX = math.floor(GetLocal().pos.x / 32 + 1)
+            config.positionY = math.floor(GetLocal().pos.y / 32 + 1)
+            shouldGetPosition = false
+        end
+        
+        if not isRunning or isPaused then
+            goto continue
+        end
+        
+        -- Check World
+        if GetWorld() == nil or GetWorld().name ~= worldName then
+            SendPacket(3, "action|join_request\nname|"..worldName.."|\ninvitedWorld|0")
+            Sleep(2000)
+        end
+        
+        -- Spam Message
+        if #config.messages > 0 then
+            local currentTime = os.time() * 1000
+            local timeSinceLastSpam = currentTime - lastSpamTime
+            
+            if currentMessageIndex == 1 and timeSinceLastSpam >= config.spamInterval then
+                SendPacket(2, "action|input\ntext|" .. config.messages[currentMessageIndex])
+                currentMessageIndex = currentMessageIndex + 1
+                lastSpamTime = currentTime
+            elseif currentMessageIndex > 1 and timeSinceLastSpam >= config.shortInterval then
+                SendPacket(2, "action|input\ntext|" .. config.messages[currentMessageIndex])
+                currentMessageIndex = currentMessageIndex + 1
+                lastSpamTime = currentTime
+                
+                if currentMessageIndex > #config.messages then
+                    currentMessageIndex = 1
+                end
+            end
+        end
+        
+        -- Safe Move
+        local currentTime = os.time() * 1000
+        if currentTime - lastMoveTime >= (config.moveInterval * 1000) then
+            local currentX = math.floor(GetLocal().pos.x / 32)
+            local currentY = math.floor(GetLocal().pos.y / 32)
+            local targetX = config.positionX + 1
+            local targetY = config.positionY
+            
+            if currentX == config.positionX and currentY == config.positionY then
+                FindPath(targetX, targetY)
+                Sleep(500)
+            else
+                FindPath(config.positionX, config.positionY)
+                Sleep(500)
+            end
+            
+            lastMoveTime = currentTime
+        end
+        
+        -- Check End Time
+        if os.time() >= endTime then
+            SendPacket(2, "action|input\n|text|/warp " .. config.targetWorld)
+            Sleep(4000)
+            isRunning = false
+        end
+        
+        ::continue::
+    end
+end)
